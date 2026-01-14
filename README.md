@@ -70,26 +70,38 @@
 
 ### 2) Client (chat_client.py)
 
-채팅 클라이언트는 동시에 두 작업을 수행해야 합니다.
+채팅 클라이언트는 **UI 이벤트 처리**와 **서버 메시지 수신**을 동시에 수행해야 합니다.
 
-- Tkinter UI 이벤트 처리: root.mainloop()
-- 서버로부터 메시지 수신: socket.recv()
+- Tkinter UI 이벤트 처리: `self.ui.run()` (내부적으로 `mainloop()` 실행)
+- 서버 메시지 수신: `socket.recv(1024)`
 
-두 함수 모두 blocking이라서 **한 스레드에서 같이 돌리면 UI가 멈춥니다.**  
-따라서 템플릿 구조는 다음처럼 동작합니다.
+둘 다 **blocking** 이므로 한 스레드에서 함께 실행하면 UI가 멈출 수 있습니다.  
+따라서 클라이언트는 다음 구조로 동작합니다.
 
-- 메인 스레드: Tkinter UI(mainloop) 실행
-- 별도 스레드: receive_message()가 socket.recv()를 계속 수행하며 메시지를 UI에 전달
+- **메인 스레드**: Tkinter UI 실행
+- **백그라운드 스레드(daemon)**: `receive_messages()`에서 `recv()`를 반복하며 수신 메시지를 UI에 표시
 
-또한 서버는 연결 직후 username을 먼저 받도록 구현되어 있으므로,
-클라이언트는 connect 직후 username을 한 번 전송한 다음 채팅 메시지를 전송해야 합니다.
+주요 구현 사항은 아래와 같습니다.
 
-메시지 포맷은 서버가 가공하지 않고 그대로 중계하므로,
-클라이언트에서 보통 다음 형태로 전송합니다.
+- **connect()**
+  - TCP 소켓 생성 후 `(host, port)`로 연결
+  - 서버가 연결 직후 **username을 먼저 받도록** 되어 있으므로, connect 직후 `self.ui.username`을 즉시 전송
+  - UI가 멈추지 않도록 메시지 수신 스레드(`receive_messages`)를 daemon으로 시작
 
-    <username>: <text>
+- **send_message()**
+  - UI 입력에서 메시지를 가져와 비어있으면 전송하지 않음
+  - 서버로 전송하는 메시지 포맷:
 
-(이 형태는 UI에서 “name:text”를 분리해 닉네임 컬러링을 하기에도 좋습니다.)
+        <username>: <text>
+
+  - 전송 성공 시 내 화면에도 즉시 표시(로컬 에코)하여 사용자가 바로 확인 가능
+
+- **receive_messages()**
+  - 서버로부터 메시지를 지속적으로 수신하여 UI에 출력
+  - 연결이 끊기면(수신 데이터 없음) “Server disconnected.” 안내 후 종료
+
+(위 `<username>: <text>` 형태는 UI에서 `name: text`를 분리해 **닉네임 컬러링**을 적용하기에도 적합합니다.)
+
 
 ### 3) UI Helper (chat_ui.py)
 
